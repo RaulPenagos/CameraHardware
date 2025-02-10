@@ -27,6 +27,7 @@ def main():
         device = device_manager.Devices()[0].OpenDevice(ids_peak.DeviceAccessType_Control)
     
         # ... do something with the device here
+        print('Should do something')
     
     except Exception as e:
         print("EXCEPTION: " + str(e))
