@@ -1,5 +1,8 @@
 import sys
 from ids_peak import ids_peak as peak
+import ids_peak_ipl.ids_peak_ipl as ids_ipl
+import ids_peak.ids_peak_ipl_extension as ids_ipl_extension
+import matplotlib.pyplot as plt
  
 m_device = None
 m_dataStream = None
@@ -132,6 +135,25 @@ def start_acquisition():
         str_error = str(e)
     
     return False
+
+def grab_image(remote_device_nodemap, datastream):
+    # trigger image
+    remote_device_nodemap.FindNode("TriggerSoftware").Execute()
+    buffer = datastream.WaitForFinishedBuffer(1000)
+
+    # convert to RGB
+    raw_image = ids_ipl_extension.BufferToImage(buffer)
+    # for Peak version 2.0.1 and lower, use this function instead of the previous line:
+    #raw_image = ids_ipl.Image_CreateFromSizeAndBuffer(buffer.PixelFormat(), buffer.BasePtr(), buffer.Size(), buffer.Width(), buffer.Height())
+    color_image = raw_image.ConvertTo(ids_ipl.PixelFormatName_RGB8)
+    datastream.QueueBuffer(buffer)
+
+    picture = color_image.get_numpy_3D()
+
+    # display the image
+    plt.figure(figsize = (5,5))
+
+    plt.imshow(picture)
     
     
 def main():
@@ -142,14 +164,17 @@ def main():
         # error
         sys.exit(-1)
     
+    
     if not prepare_acquisition():
         # error
         sys.exit(-2)
     
     if not set_roi(16, 16, 128, 128):
         # error
+        print('Error setting ROI')
         sys.exit(-3)
-    
+  
+    print("hi2")
     if not alloc_and_announce_buffers():
         # error
         sys.exit(-4)
@@ -157,7 +182,11 @@ def main():
     if not start_acquisition():
         # error
         sys.exit(-5)
+    print("hi")
     
+    grab_image(m_node_map_remote_device, m_dataStream)
+
+
     
     peak.Library.Close()
     sys.exit(0)
