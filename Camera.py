@@ -1,3 +1,12 @@
+"""
+Script defining Camera and Image classes. Enables the use of IDS cameras, and processing of 
+taken images. Uses CircleCompleter in order to calculate the center of circles given an image
+of just a portion.
+
+Author: Raul Penagos
+Date: Feb 13th, 2025
+"""
+
 import ids_peak.ids_peak as ids_peak
 import ids_peak_ipl.ids_peak_ipl as ids_ipl
 import ids_peak.ids_peak_ipl_extension as ids_ipl_extension
@@ -18,6 +27,10 @@ import os # path to the project, used in Image.save()
 
 class Image:
     """
+    Class Image, helps in foramting and processing pictures taken with an IDS camera.
+    Methods of the class:
+    save()    display()   binarize()  soften()    find_cm()   search_border()  circle_treatment()
+
     Para facilitar la minimaización definir unos valores iniciales del centro acorde con lo esperado
     """
     def __init__(self, matrix):
@@ -33,12 +46,19 @@ class Image:
 
 
     def save(self):
+        """
+        Save the image to the file name given by the Image's time stamp.
+        Make sure the folder exists.
+        """
         plt.figure(figsize = (5,5))
         plt.imshow(self.image)
         
         plt.savefig(self.abs_filename)
 
     def display(self, save = False):
+        """
+        Show and optionally save the image on screen.
+        """
         plt.close("all")
         plt.figure(figsize = (5,5))
         plt.imshow(self.image, cmap = 'gray')
@@ -52,10 +72,17 @@ class Image:
         plt.show()
 
     def binarize(self):
+        """
+        Binarize the image to (0, 255) grey scale (black and white).
+        """
         self.image = np.where(self.image > self.image.max()/2, 255, 0)
         return self
         
     def soften(self, m = 8 ):
+        """
+        Soften filter smoothens the image by taking and average of a m shape
+        square kernel.
+        """
         # Average filter
         for i in range(0+m, self.image.shape[0] - m):
             for j in range(0+m, self.image.shape[1] - m):
@@ -63,6 +90,10 @@ class Image:
         return self
     
     def find_cm(self):
+        """
+        Given a binarized picture, it subtracts the center of fiducials (white) 
+        on a black Background.
+        """
         # Average of white Pixels, for binarized pictures 
         yy, xx = np.where(self.image > 0)
         # self.cm = np.array([xx, yy])
@@ -70,6 +101,8 @@ class Image:
              
     def search_border(self):
         """
+        Busca los pixels de frontera en una imagen binarizada, aquellos que estén rodeados 
+        por pixels de distinto color. (up, down, right, left)
         Si hago una cruz con 'brazos mas largos' y exijo que dos sean negros y dos blancos
         podría mejorar y quitarme tantos puntos de ruido
         """
@@ -143,7 +176,14 @@ class Image:
 
     
     def circle_treatment(self, show = True):
-        # Test!
+        """
+        Given the coordinates x,y of a circles border, or segment of its border
+        It will minimize through a Likelihood function the center (a,b) of the 
+        circle and its radius (r).
+        Returns: 
+            a: posición centro en x
+            b: posición centro en y
+        """
         x, y = self.search_border()
 
         cal = CircleFit(x, y)
@@ -161,13 +201,16 @@ class Image:
             plt.scatter(a,b, s = 30, c = 'r')   
             plt.show()
 
-    
 
-    # Añadir completar circulos, etc
+        return a,b 
 
 
 
 class Camera:
+    """
+    Class that enables the conection with an IDS industrial camera by creating an instance of it.
+    Enables changing exposure_time, take images process and save them as Image instances.
+    """
     def __init__(self):
 
         self.device_descriptors = None
@@ -184,102 +227,151 @@ class Camera:
         
 
     def search_device(self):
-        ids_peak.Library.Close()
-        ids_peak.Library.Initialize()
-        device_manager = ids_peak.DeviceManager.Instance()
-        device_manager.Update()
-        self.device_descriptors = device_manager.Devices()
+        """
+        Searches for devices compatible with IDS industrial cameras
+        """
+        try:
+            ids_peak.Library.Close()
+            ids_peak.Library.Initialize()
+            device_manager = ids_peak.DeviceManager.Instance()
+            device_manager.Update()
+            self.device_descriptors = device_manager.Devices()
 
-        print("Found Devices: " + str(len(self.device_descriptors)))
+            print("Found Devices: " + str(len(self.device_descriptors)))
 
-        for self.device_descriptor in self.device_descriptors:
-            print(self.device_descriptor.DisplayName())
+            for self.device_descriptor in self.device_descriptors:
+                print(self.device_descriptor.DisplayName())
 
-        return self
+            return self
+        except Exception as e:
+            print('ERR:' + str(e))
+        finally:
+            ids_peak.Library.Close()
 
 
     def open_device(self):
-        self.device = self.device_descriptors[0].OpenDevice(ids_peak.DeviceAccessType_Control)
-        print("Opened Device: " + self.device.DisplayName())
-        self.remote_device_nodemap = self.device.RemoteDevice().NodeMaps()[0]
+        """
+        Opens available devices.
+        Will give an error if the devices are already in use
+        """
+        try:
+            self.device = self.device_descriptors[0].OpenDevice(ids_peak.DeviceAccessType_Control)
+            print("Opened Device: " + self.device.DisplayName())
+            self.remote_device_nodemap = self.device.RemoteDevice().NodeMaps()[0]
 
-        # Set Software trigger: Single frame acquisition
-        self.remote_device_nodemap.FindNode("TriggerSelector").SetCurrentEntry("ExposureStart")
-        self.remote_device_nodemap.FindNode("TriggerSource").SetCurrentEntry("Software")
-        self.remote_device_nodemap.FindNode("TriggerMode").SetCurrentEntry("On")
+            # Set Software trigger: Single frame acquisition
+            self.remote_device_nodemap.FindNode("TriggerSelector").SetCurrentEntry("ExposureStart")
+            self.remote_device_nodemap.FindNode("TriggerSource").SetCurrentEntry("Software")
+            self.remote_device_nodemap.FindNode("TriggerMode").SetCurrentEntry("On")
 
-        return self
+            return self
+        except Exception as e:
+            print('No device is free and available. ERR:' + str(e))
+        finally:
+            ids_peak.Library.Close()
 
     def start_acquisition(self):
-        self.datastream = self.device.DataStreams()[0].OpenDataStream()
-        payload_size = self.remote_device_nodemap.FindNode("PayloadSize").Value()
-        for i in range(self.datastream.NumBuffersAnnouncedMinRequired()):
-            buffer = self.datastream.AllocAndAnnounceBuffer(payload_size)
-            self.datastream.QueueBuffer(buffer)
-            
-        self.datastream.StartAcquisition()
-        self.remote_device_nodemap.FindNode("AcquisitionStart").Execute()
-        self.remote_device_nodemap.FindNode("AcquisitionStart").WaitUntilDone()
+        """
+        Starts acquisition time, during this time Images can be taken
+        """
+        try:
+            self.datastream = self.device.DataStreams()[0].OpenDataStream()
+            payload_size = self.remote_device_nodemap.FindNode("PayloadSize").Value()
+            for i in range(self.datastream.NumBuffersAnnouncedMinRequired()):
+                buffer = self.datastream.AllocAndAnnounceBuffer(payload_size)
+                self.datastream.QueueBuffer(buffer)
 
-        return self
+            self.datastream.StartAcquisition()
+            self.remote_device_nodemap.FindNode("AcquisitionStart").Execute()
+            self.remote_device_nodemap.FindNode("AcquisitionStart").WaitUntilDone()
+
+            return self
+        except Exception as e:
+            print('No device is free and available. ERR:' + str(e))
+        finally:
+            ids_peak.Library.Close()
 
     def set_exposure(self, exposure_time_seg = 1/250):
-        self.exposure_time_seg = exposure_time_seg
-        exposure_time_microseg = exposure_time_seg * 1e6
-        self.remote_device_nodemap.FindNode("ExposureTime").SetValue(exposure_time_microseg) # in microseconds  # in microseconds
+        """
+        Sets exposure time for the capture
+        """
+        try: 
+            self.exposure_time_seg = exposure_time_seg
+            exposure_time_microseg = exposure_time_seg * 1e6
+            self.remote_device_nodemap.FindNode("ExposureTime").SetValue(exposure_time_microseg) # in microseconds  # in microseconds
 
-        return self
+            return self
+        except Exception as e:
+            print('No device is free and available. ERR:' + str(e))
+        finally:
+            ids_peak.Library.Close()
 
     def get_image(self):
         """
-        Fotos de la clase imagen
+        Triggers the camera and gets a picture of type Image
         """
-        # trigger image
-        self.remote_device_nodemap.FindNode("TriggerSoftware").Execute()
-        buffer = self.datastream.WaitForFinishedBuffer(1000)
+        try:
+            # trigger image
+            self.remote_device_nodemap.FindNode("TriggerSoftware").Execute()
+            buffer = self.datastream.WaitForFinishedBuffer(1000)
 
-        # convert to RGB
-        raw_image = ids_ipl_extension.BufferToImage(buffer)
-        # for Peak version 2.0.1 and lower, use this function instead of the previous line:
-        #raw_image = ids_ipl.Image_CreateFromSizeAndBuffer(buffer.PixelFormat(), buffer.BasePtr(), buffer.Size(), buffer.Width(), buffer.Height())
-        color_image = raw_image.ConvertTo(ids_ipl.PixelFormatName_RGB8)
-        self.datastream.QueueBuffer(buffer)
+            # convert to RGB
+            raw_image = ids_ipl_extension.BufferToImage(buffer)
+            # for Peak version 2.0.1 and lower, use this function instead of the previous line:
+            #raw_image = ids_ipl.Image_CreateFromSizeAndBuffer(buffer.PixelFormat(), buffer.BasePtr(), buffer.Size(), buffer.Width(), buffer.Height())
+            color_image = raw_image.ConvertTo(ids_ipl.PixelFormatName_RGB8)
+            self.datastream.QueueBuffer(buffer)
 
-        self.image = Image(color_image.get_numpy_3D())
-        
+            self.image = Image(color_image.get_numpy_3D())
+        except Exception as e:
+            print('No device is free and available. ERR:' + str(e))
+        finally:
+            ids_peak.Library.Close()
 
     def close_device(self):
+        """
+        Closes the libraries, seting free the device in use. 
+        """
         ids_peak.Library.Close()
 
-    def auto_exposure_get_image(self, grey_pallete = 50):
+    def auto_exposure_get_image(self, gray_pallete = 50):
         """
-        Para que todo funcione bine es fundamental conseguir una foto con buena exposición
-        que se podrá binarizar correctamente
+        Sets automatically exposure, no matters the extern ilumination conditions, 
+        given by the light source.
+        Computes the average luminance of the frame and compares to a gray_pallete value.
+        Args:
+            gray_pallete: Value to compare with the average luminance. 
+            --Recommended values:--
+            > Fiducials = 50
+            > Calibration Dots = ... 
         https://stackoverflow.com/questions/73611185/automatic-shutter-speed-adjustment-feedback-algorithm-based-on-images
-        --L2 Values--
-        > Fiducials = 50
-        > 
+
         """
-        self.set_exposure(self.exposure_time_seg)
-        self.get_image()
-        
-        L1 = np.mean(self.image.image) # Compute the average luminance of the current frame 
-        print(L1)
-        
-        L2 = grey_pallete # Gray Card reference
+        try:
+            self.set_exposure(self.exposure_time_seg)
+            self.get_image()
 
-        a = 0.5
+            L1 = np.mean(self.image.image) # Compute the average luminance of the current frame 
+            print(L1)
 
-        #  Compute exposure Value
-        # EV = np.log2(L1)/np.log2(L2)
-        self.set_exposure(self.exposure_time_seg*(120 / L1) ** a)   #  0.5 parameter is tuneable
+            L2 = gray_pallete # Gray Card reference
 
-        while np.abs(L1-L2) > 5:
+            a = 0.5  # a = 0.5 parameter is tuneable
+
+            #  Compute exposure Value
+            # EV = np.log2(L1)/np.log2(L2)
+            self.set_exposure(self.exposure_time_seg*(120 / L1) ** a)  
+
+            while np.abs(L1-L2) > 5:
+                self.get_image() 
+                L1 = np.mean(self.image.image)
+                self.set_exposure(self.exposure_time_seg*(L2 / L1) ** a) 
             self.get_image() 
-            L1 = np.mean(self.image.image)
-            self.set_exposure(self.exposure_time_seg*(L2 / L1) ** a)   #  0.5 parameter is tuneable
-        self.get_image() 
-        self.image.display()
+            self.image.display()
+        except Exception as e:
+            print('No device is free and available. ERR:' + str(e))
+        finally:
+            ids_peak.Library.Close()
 
 
     def fiducial_protocole(self):
@@ -354,7 +446,6 @@ def test4():
     camera.image.display()
 
     camera.auto_exposure_get_image()
-
 
     camera.close_device()
 
